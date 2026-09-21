@@ -3,6 +3,7 @@
 # RUN INSIDE THE toolbox CONTAINER (needs OpenSSL 3.5+ for ML-DSA).
 #   docker compose exec toolbox bash /work/certs/make-estate.sh 200
 set -euo pipefail
+trap 'echo "!! make-estate.sh failed at line $LINENO (command: $BASH_COMMAND)" >&2' ERR
 
 COUNT="${1:-200}"
 OUT="/work/certs/estate"
@@ -13,6 +14,18 @@ rm -rf "$OUT"; mkdir -p "$LEAF"
 cd "$OUT"
 
 echo "[*] OpenSSL: $(openssl version)"
+
+# Fedora's system crypto policy refuses to *create* SHA-1 signatures
+# (rh-allow-sha1-signatures = no). We want a few SHA-1 certs in the estate on
+# purpose, so the SHA-1 signing step alone runs with this override config.
+SHA1_CNF="$OUT/allow-sha1.cnf"
+cat > "$SHA1_CNF" <<'CNF'
+openssl_conf = openssl_init
+[openssl_init]
+alg_section = evp_properties
+[evp_properties]
+rh-allow-sha1-signatures = yes
+CNF
 openssl list -signature-algorithms | grep -qi 'ML-DSA' \
   || { echo "!! No ML-DSA. You are not on OpenSSL 3.5+. Stop and fix that first."; exit 1; }
 
@@ -61,9 +74,9 @@ for i in $(seq -w 1 "$COUNT"); do
   openssl req -new -key "$k" -subj "/C=SG/O=Meridian Bank/OU=$env/CN=$cn" -out "$LEAF/$cn.csr" 2>/dev/null
 
   # ~15% signed with SHA-1 to seed a Grover/collision talking point.
-  if [ $((RANDOM % 100)) -lt 15 ]; then md="-sha1"; else md="-sha256"; fi
+  if [ $((RANDOM % 100)) -lt 15 ]; then md="-sha1"; cnf="$SHA1_CNF"; else md="-sha256"; cnf=""; fi
 
-  openssl x509 -req -in "$LEAF/$cn.csr" -CA ca.crt -CAkey ca.key -CAcreateserial \
+  OPENSSL_CONF="$cnf" openssl x509 -req -in "$LEAF/$cn.csr" -CA ca.crt -CAkey ca.key -CAcreateserial \
     $md -not_before "$(stamp $nb)" -not_after "$(stamp $na)" -out "$c" 2>/dev/null
   rm -f "$LEAF/$cn.csr"
 done
@@ -85,7 +98,7 @@ for c in "$LEAF"/*.crt; do
   txt=$(openssl x509 -in "$c" -noout -text)
   cn=$(openssl x509 -in "$c" -noout -subject -nameopt RFC2253 | sed 's/.*CN=//; s/,.*//')
   env=$(openssl x509 -in "$c" -noout -subject -nameopt RFC2253 | sed -n 's/.*OU=\([^,]*\).*/\1/p')
-  app=$(echo "$cn" | cut -d- -f1)
+  app=$(echo "$cn" | sed -E 's/-[0-9]+..*$//; s/..*$//')   # api-gw-042.prod.x -> api-gw ; pqc-pilot.prod.x -> pqc-pilot
   keyalg=$(echo "$txt" | awk -F': ' '/Public Key Algorithm:/{print $2; exit}')
   bits=$(echo "$txt"   | sed -n 's/.*Public-Key: (\([0-9]*\) bit).*/\1/p' | head -1)
   curve=$(echo "$txt"  | awk -F': ' '/ASN1 OID:/{print $2; exit}')
