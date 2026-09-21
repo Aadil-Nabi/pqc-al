@@ -1,0 +1,33 @@
+# Generated lab artefacts (rebuilt by the scripts; never commit)
+certs/estate/
+scans/out/
+badcrypto/cbom.json
+badcrypto/cbom*.json
+badcrypto/target/
+badcrypto/.scannerwork/
+
+# Private keys and certs - belt and braces
+*.key
+*.pem
+*.p12
+*.pfx
+*.csr
+*.srl
+
+# Secrets / local config
+.env
+.env.*
+*.token
+sonar-cryptography-*.jar
+
+# Customer material - keep engagement data out of the public tree
+customer/
+engagements/
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

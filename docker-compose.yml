@@ -1,0 +1,48 @@
+services:
+
+  # Modern endpoint: nginx on Fedora 43 (system OpenSSL 3.5, native PQC)
+  pqc-web:
+    build: ./pqc
+    container_name: pqc-web
+    hostname: pqc-web.lab
+    ports: ["8443:443"]
+    networks: [lab]
+
+  # Legacy endpoint: nginx 1.20 on OpenSSL 1.1.1, TLS 1.0-1.2, SHA-1 cert
+  legacy-web:
+    build: ./legacy
+    container_name: legacy-web
+    hostname: legacy-web.lab
+    ports: ["9443:443"]
+    networks: [lab]
+
+  # Client / cert factory / scanner jump box
+  toolbox:
+    build: ./toolbox
+    container_name: toolbox
+    hostname: toolbox.lab
+    volumes: ["./:/work"]
+    networks: [lab]
+    command: ["sleep", "infinity"]
+
+  # SonarQube: hosts the sonar-cryptography plugin for CBOM generation
+  sonarqube:
+    image: sonarqube:community
+    container_name: sonarqube
+    hostname: sonarqube.lab
+    ports: ["9000:9000"]
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_logs:/opt/sonarqube/logs
+      - sonar_exts:/opt/sonarqube/extensions
+    networks: [lab]
+
+networks:
+  lab: { driver: bridge }
+
+volumes:
+  sonar_data:
+  sonar_logs:
+  sonar_exts:
