@@ -165,9 +165,12 @@ docker compose restart sonarqube
 # "Cryptographic Inventory (CBOM)" (repository sonar-java-crypto), set the
 # copy as default. Repeat for Python (sonar-python-crypto). Without this
 # rule active no cbom.json is written.
-export SONAR_TOKEN=squ_xxxxxxxx
+export SONAR_TOKEN=sqp_xxxxxxxx
+# The UI derives the key from the name ("Meridian-BadCrypto-Sample"), which does
+# not match the properties file. Pass the key SonarQube actually shows:
+export SONAR_PROJECT_KEY=Meridian-BadCrypto-Sample
 
-./scans/cbom-scan.sh
+./scans/cbom-scan.sh 2>&1 | grep -v 'constructor definition'   # hides plugin noise
 jq '.components[] | {name, type, cryptoProperties}' badcrypto/cbom.json | head -60
 ```
 
