@@ -123,8 +123,11 @@ ls scans/out/
 Outputs go to `scans/out/` — handshake transcripts, nmap cipher enumeration, and
 full testssl.sh runs on both endpoints.
 
-Check whether your testssl build reports ML-KEM groups. If it does not, say so out
-loud during the session and fall back to `s_client`. Letting the team claim a tool
+Check whether your testssl build reports ML-KEM groups. testssl 3.2.4 (the current
+`drwetter/testssl.sh` image) does: look for the `KEMs offered` line and the browser
+simulation table, which shows Chrome, Firefox, Edge and Android negotiating
+X25519MLKEM768. If your build does not, say so out loud during the session and
+fall back to `s_client`. Letting the team claim a tool
 sees something it does not is the exact habit you are running this workshop to prevent.
 
 ---
