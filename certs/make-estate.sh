@@ -98,7 +98,7 @@ for c in "$LEAF"/*.crt; do
   txt=$(openssl x509 -in "$c" -noout -text)
   cn=$(openssl x509 -in "$c" -noout -subject -nameopt RFC2253 | sed 's/.*CN=//; s/,.*//')
   env=$(openssl x509 -in "$c" -noout -subject -nameopt RFC2253 | sed -n 's/.*OU=\([^,]*\).*/\1/p')
-  app=$(echo "$cn" | sed -E 's/-[0-9]+..*$//; s/..*$//')   # api-gw-042.prod.x -> api-gw ; pqc-pilot.prod.x -> pqc-pilot
+  app=$(echo "$cn" | sed -E 's/-[0-9]+\..*$//; s/\..*$//')   # api-gw-042.prod.x -> api-gw ; pqc-pilot.prod.x -> pqc-pilot
   keyalg=$(echo "$txt" | awk -F': ' '/Public Key Algorithm:/{print $2; exit}')
   bits=$(echo "$txt"   | sed -n 's/.*Public-Key: (\([0-9]*\) bit).*/\1/p' | head -1)
   curve=$(echo "$txt"  | awk -F': ' '/ASN1 OID:/{print $2; exit}')
