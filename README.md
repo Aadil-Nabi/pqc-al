@@ -135,6 +135,12 @@ The CBOMkit toolset has moved between the IBM, PQCA and cbomkit GitHub
 organisations. **Check the current canonical repo before you download anything** —
 do not paste a URL from an old deck into a customer-facing artefact.
 
+As of September 2026 the canonical repo is `github.com/cbomkit/sonar-cryptography`
+(the IBM and PQCA URLs redirect there). Release 1.7.0 was tagged without a jar;
+the newest release that ships one is 1.6.1. The compatibility table lists
+SonarQube 9.9 LTS and up; if the plugin refuses to load on the current
+`sonarqube:community` image, pin the compose service to `sonarqube:10.7-community`.
+
 The detection engine is `sonar-cryptography`, a SonarQube plugin. It covers Java
 (JCA, BouncyCastle), Python (pyca/cryptography) and Go, needs SonarQube 9.9 LTS or
 newer, and only the "Cryptographic Inventory (CBOM)" rule writes a `cbom.json`.
@@ -143,13 +149,19 @@ newer, and only the "Cryptographic Inventory (CBOM)" rule writes a `cbom.json`.
 
 ```bash
 # once: install the plugin
-docker cp sonar-cryptography-<version>.jar sonarqube:/opt/sonarqube/extensions/plugins/
+curl -L -O https://github.com/cbomkit/sonar-cryptography/releases/download/1.6.1/sonar-cryptography-plugin-1.6.1.jar
+docker cp sonar-cryptography-plugin-1.6.1.jar sonarqube:/opt/sonarqube/extensions/plugins/
 docker compose restart sonarqube
 
 # If port 9000 is already taken on the host (MinIO uses it), pick another before
 # starting:  export SONAR_PORT=9900 && docker compose up -d sonarqube
 # log in at http://<host>:9000  (admin / admin), change the password,
-# create project "meridian-badcrypto", generate a token
+# create project "meridian-badcrypto" (local project, key must match
+# badcrypto/sonar-project.properties), generate a project token.
+# Then Quality Profiles -> Java -> copy "Sonar way", activate the rule
+# "Cryptographic Inventory (CBOM)" (repository sonar-java-crypto), set the
+# copy as default. Repeat for Python (sonar-python-crypto). Without this
+# rule active no cbom.json is written.
 export SONAR_TOKEN=squ_xxxxxxxx
 
 ./scans/cbom-scan.sh
