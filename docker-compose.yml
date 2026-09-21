@@ -2,7 +2,7 @@ services:
 
   # Modern endpoint: nginx on Fedora 43 (system OpenSSL 3.5, native PQC)
   pqc-web:
-    build: ./pqc
+    build: { context: ., dockerfile: pqc/Dockerfile }
     container_name: pqc-web
     hostname: pqc-web.lab
     ports: ["8443:443"]
@@ -10,7 +10,7 @@ services:
 
   # Legacy endpoint: nginx 1.20 on OpenSSL 1.1.1, TLS 1.0-1.2, SHA-1 cert
   legacy-web:
-    build: ./legacy
+    build: { context: ., dockerfile: legacy/Dockerfile }
     container_name: legacy-web
     hostname: legacy-web.lab
     ports: ["9443:443"]
@@ -18,7 +18,7 @@ services:
 
   # Client / cert factory / scanner jump box
   toolbox:
-    build: ./toolbox
+    build: { context: ., dockerfile: toolbox/Dockerfile }
     container_name: toolbox
     hostname: toolbox.lab
     volumes: ["./:/work"]

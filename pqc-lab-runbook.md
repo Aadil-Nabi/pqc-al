@@ -27,6 +27,12 @@ echo 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.conf
 sudo usermod -aG docker "$USER"   # log out and back in
 ```
 
+**Behind a corporate TLS-inspecting proxy (Zscaler, Netskope, ...)?** Pulls and the
+package installs inside the builds will fail with `x509: certificate signed by
+unknown authority`. Export the proxy's CA chain as PEM, drop it in
+`certs/corp-ca/*.crt`, and trust it on the host too — see `certs/corp-ca/README.md`.
+Every Dockerfile picks the folder up automatically; the folder is gitignored.
+
 ---
 
 ## 2. Bring the lab up

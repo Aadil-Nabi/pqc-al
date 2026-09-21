@@ -1,0 +1,6 @@
+.git
+certs/estate
+scans/out
+badcrypto/target
+badcrypto/.scannerwork
+badcrypto/cbom*.json

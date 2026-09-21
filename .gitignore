@@ -1,5 +1,6 @@
 # Generated lab artefacts (rebuilt by the scripts; never commit)
 certs/estate/
+certs/corp-ca/*.crt
 scans/out/
 badcrypto/cbom.json
 badcrypto/cbom*.json
