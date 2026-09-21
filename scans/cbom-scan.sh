@@ -12,6 +12,9 @@
 #     export SONAR_TOKEN=squ_xxx
 set -euo pipefail
 : "${SONAR_TOKEN:?export SONAR_TOKEN first}"
+# Project key must match the project in SonarQube. Override if you created it in the UI:
+#   export SONAR_PROJECT_KEY=<key shown in SonarQube>
+PROJECT_KEY="${SONAR_PROJECT_KEY:-meridian-badcrypto}"
 NET=$(docker network ls --format '{{.Name}}' | grep -m1 'lab$')
 SRC="$(cd "$(dirname "$0")/../badcrypto" && pwd)"
 
@@ -23,7 +26,7 @@ docker run --rm --network "$NET" \
   -v "$SRC":/usr/src \
   -e SONAR_HOST_URL="http://sonarqube.lab:9000" \
   -e SONAR_TOKEN="$SONAR_TOKEN" \
-  sonarsource/sonar-scanner-cli
+  sonarsource/sonar-scanner-cli -Dsonar.projectKey="$PROJECT_KEY"
 
 echo
 echo "CBOM is written next to the scanned sources as cbom.json"
