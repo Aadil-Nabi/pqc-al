@@ -61,11 +61,12 @@ docker compose exec toolbox openssl s_client \
 
 # Legacy endpoint cannot. Screenshot this failure — it is your opening slide.
 docker compose exec toolbox openssl s_client \
-  -connect legacy-web.lab:443 -groups X25519MLKEM768 -tls1_3 </dev/null 2>&1 | tail -5
+  -connect legacy-web.lab:443 -groups X25519MLKEM768 -tls1_3 </dev/null 2>&1 | grep -Ei "Cipher is|alert|error"
 ```
 
-Expected: `Negotiated TLS1.3 group: X25519MLKEM768` on the first, a handshake
-failure on the second.
+Expected: `Negotiated TLS1.3 group: X25519MLKEM768` on the first. On the second,
+`New, (NONE), Cipher is (NONE)` plus a `tlsv1 alert protocol version` line: the
+legacy server cannot speak TLS 1.3 at all, let alone a hybrid group.
 
 **If `openssl list -kem-algorithms` shows no MLKEM**, you are not on OpenSSL 3.5+.
 Nothing else will work. On Ubuntu 24.04 the system OpenSSL is 3.0 — that is exactly
@@ -145,6 +146,8 @@ newer, and only the "Cryptographic Inventory (CBOM)" rule writes a `cbom.json`.
 docker cp sonar-cryptography-<version>.jar sonarqube:/opt/sonarqube/extensions/plugins/
 docker compose restart sonarqube
 
+# If port 9000 is already taken on the host (MinIO uses it), pick another before
+# starting:  export SONAR_PORT=9900 && docker compose up -d sonarqube
 # log in at http://<host>:9000  (admin / admin), change the password,
 # create project "meridian-badcrypto", generate a token
 export SONAR_TOKEN=squ_xxxxxxxx

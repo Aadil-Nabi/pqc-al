@@ -27,7 +27,7 @@ echo "=============================================================="
 echo " 3. Legacy endpoint - expect this to FAIL. That failure is the lesson."
 echo "=============================================================="
 docker compose exec -T toolbox sh -c \
-  "openssl s_client -connect legacy-web.lab:443 -groups X25519MLKEM768 -tls1_3 </dev/null 2>&1 | tail -6" \
+  "openssl s_client -connect legacy-web.lab:443 -groups X25519MLKEM768 -tls1_3 </dev/null 2>&1 | grep -Ei 'Cipher is|alert|error'" \
   | tee "$OUT/legacy-handshake-fail.txt"
 
 echo

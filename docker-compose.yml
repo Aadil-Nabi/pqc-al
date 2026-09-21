@@ -30,7 +30,7 @@ services:
     image: sonarqube:community
     container_name: sonarqube
     hostname: sonarqube.lab
-    ports: ["9000:9000"]
+    ports: ["${SONAR_PORT:-9000}:9000"]   # override with SONAR_PORT=9900 if 9000 is taken (e.g. MinIO)
     environment:
       - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
     volumes:
