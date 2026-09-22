@@ -1,228 +1,74 @@
-# PQC Assessment Workshop Lab — Build Runbook
+# pqc-al — PQC Assessment Workshop Lab
 
-Everything here runs on **one machine**. Two things sit outside it: the CipherTrust
-Manager appliance and the HSM. Build in the order below; each step has a check you
-must pass before moving on.
+A self-contained Docker lab for running post-quantum cryptography (PQC) assessment
+workshops. It puts a modern TLS endpoint that negotiates `X25519MLKEM768` next to a
+legacy one that cannot, generates a 200-certificate mock estate with the weaknesses a
+bank actually has, scans both endpoints with the standard tooling, and produces a
+CycloneDX 1.6 cryptographic bill of materials (CBOM) from deliberately bad source
+code with SonarQube and the sonar-cryptography plugin.
 
----
+The point of the lab is the reconciliation work the team does by hand between the
+tool output and the assessment workbook. The tools are there to be argued with.
 
-## 1. Servers you actually need
+Everything runs on one Ubuntu 24.04 VM with 100 GB thin-provisioned disk and 16 GB
+RAM. Verified end to end on 21 September 2026, including behind a corporate
+TLS-inspecting proxy.
 
-| # | Name | What it is | Spec | Why |
-|---|------|-----------|------|-----|
-| 1 | **Lab host** | Physical box or VM | 8 vCPU, 32 GB RAM, 200 GB disk, Ubuntu 24.04 LTS | Runs every container below |
-| 2 | `pqc-web` | Container (Fedora 43 + nginx) | ~200 MB | Modern endpoint. Fedora 43 ships OpenSSL 3.5 as the system library, so ML-KEM works with no provider build |
-| 3 | `legacy-web` | Container (nginx 1.20 / OpenSSL 1.1.1) | ~50 MB | The "before" picture: TLS 1.0–1.2, RSA-2048, SHA-1 cert |
-| 4 | `toolbox` | Container (Fedora 43) | ~400 MB | Client, cert factory, nmap. Shares `/work` with the host |
-| 5 | `sonarqube` | Container | 4 GB RAM, 20 GB disk | Hosts the sonar-cryptography plugin that emits `cbom.json` |
-| 6 | **CTM** | Separate VM (OVA from Thales) | 4 vCPU, 8 GB RAM, 100 GB disk (confirm against 2.21 release notes) | ML-KEM key generation demo |
-| 7 | **HSM** | DPoD Cloud HSM tenant, or physical Luna | no VM needed for DPoD | PQC firmware/client story |
+**Full build instructions, expected outputs and troubleshooting:
+[pqc-lab-runbook.md](pqc-lab-runbook.md).**
 
-**Do not skip the host prep.** SonarQube will not start without it:
+## What is in here
 
-```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-v2 git jq
-sudo sysctl -w vm.max_map_count=262144
-echo 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.conf
-sudo usermod -aG docker "$USER"   # log out and back in
+```
+docker-compose.yml     pqc-web, legacy-web, toolbox, sonarqube on one bridge network
+pqc/                   Fedora 43 + nginx, OpenSSL 3.5, TLS 1.3 only, hybrid ML-KEM
+legacy/                nginx 1.20 / OpenSSL 1.1.1, TLS 1.0–1.2, SHA-1 cert, CBC suites
+toolbox/               Fedora 43 client: openssl 3.5, nmap, curl, jq
+certs/make-estate.sh   builds the mock certificate estate + CycloneDX-shaped CSV
+certs/corp-ca/         drop a corporate proxy CA here if builds fail on x509 errors
+scans/run-scans.sh     s_client, nmap ssl-enum-ciphers, testssl.sh -> scans/out/
+scans/cbom-scan.sh     compiles badcrypto/, runs sonar-scanner, writes cbom.json
+badcrypto/             deliberately weak Java (JCA) and Python (pyca) samples
+pqc-lab-runbook.md     the runbook
 ```
 
-**Behind a corporate TLS-inspecting proxy (Zscaler, Netskope, ...)?** Pulls and the
-package installs inside the builds will fail with `x509: certificate signed by
-unknown authority`. Export the proxy's CA chain as PEM, drop it in
-`certs/corp-ca/*.crt`, and trust it on the host too — see `certs/corp-ca/README.md`.
-Every Dockerfile picks the folder up automatically; the folder is gitignored.
+Generated output (`certs/estate/`, `scans/out/`, `badcrypto/cbom.json`), private
+keys, tokens, the SonarQube plugin jar and anything under `customer/` or
+`engagements/` are gitignored.
 
----
-
-## 2. Bring the lab up
-
-**Where:** lab host, in the unpacked `pqc-lab/` directory.
+## Quick start
 
 ```bash
-cd pqc-lab
-docker compose build
-docker compose up -d
-docker compose ps
-```
+# host prep (once)
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 docker-buildx git jq
+sudo sysctl -w vm.max_map_count=262144 && echo 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.conf
+sudo usermod -aG docker "$USER" && newgrp docker
 
-**Check — this is the whole point of the lab, so get it working before anything else:**
+# lab
+git clone https://github.com/Aadil-Nabi/pqc-al.git pqc-lab && cd pqc-lab
+echo 'SONAR_PORT=9900' > .env          # only if 9000 is taken on your host
+docker compose build && docker compose up -d
 
-```bash
-# The client speaks PQC natively
-docker compose exec toolbox openssl version
-docker compose exec toolbox openssl list -kem-algorithms | grep -i mlkem
-docker compose exec toolbox openssl list -signature-algorithms | grep -i ml-dsa
+# the check that matters
+docker compose exec toolbox openssl s_client -connect pqc-web.lab:443 \
+  -groups X25519MLKEM768 -tls1_3 </dev/null 2>&1 | grep Negotiated
+#   -> Negotiated TLS1.3 group: X25519MLKEM768
 
-# Modern endpoint negotiates a hybrid group
-docker compose exec toolbox openssl s_client \
-  -connect pqc-web.lab:443 -groups X25519MLKEM768 -tls1_3 </dev/null 2>&1 \
-  | grep -i "Negotiated"
-
-# Legacy endpoint cannot. Screenshot this failure — it is your opening slide.
-docker compose exec toolbox openssl s_client \
-  -connect legacy-web.lab:443 -groups X25519MLKEM768 -tls1_3 </dev/null 2>&1 | grep -Ei "Cipher is|alert|error"
-```
-
-Expected: `Negotiated TLS1.3 group: X25519MLKEM768` on the first. On the second,
-`New, (NONE), Cipher is (NONE)` plus a `tlsv1 alert protocol version` line: the
-legacy server cannot speak TLS 1.3 at all, let alone a hybrid group.
-
-**If `openssl list -kem-algorithms` shows no MLKEM**, you are not on OpenSSL 3.5+.
-Nothing else will work. On Ubuntu 24.04 the system OpenSSL is 3.0 — that is exactly
-why the containers are Fedora-based, and it is a useful thing to show the team:
-their own laptops are in the same position as the customer's servers.
-
-**Browser check (optional, five minutes, good demo):** from a machine that can reach
-the host, open `https://<host>:8443` in Chrome, accept the self-signed warning, then
-open DevTools → Security. Modern Chrome offers `X25519MLKEM768` by default. Compare
-with `https://<host>:9443`.
-
----
-
-## 3. Build the certificate estate
-
-**Where:** inside the `toolbox` container (needs OpenSSL 3.5 for ML-DSA).
-
-```bash
+# certificate estate, network scans
 docker compose exec toolbox bash /work/certs/make-estate.sh 200
-```
-
-This produces:
-
-- `certs/estate/ca.crt` — classical RSA-4096 root
-- `certs/estate/mldsa-ca.crt` — ML-DSA-65 root. A private CA is currently the only
-  way to get PQC certificates; public CAs and root programmes have not caught up
-- `certs/estate/leaf/` — 200 leaf certs with a deliberate mix: RSA-1024 through
-  RSA-4096, P-256, P-384, some SHA-1 signed, some already expired, some valid past 2030
-- `certs/estate/cert-inventory.csv` — the inventory, with column names shaped toward
-  the CycloneDX 1.6 cryptographic-asset fields
-
-**The exercise, not the script, is the point.** Hand the team the CSV and have them
-populate the Crypto Inventory tab of the frozen workbook from it. Watch for anyone
-typing free text where a controlled value belongs. Every place that happens is a
-place your CBOM generation will break later.
-
-Three questions to put to the room while they work:
-
-1. How many certificates are valid past 2030, and who signed off on that validity period?
-2. How long would it take this bank to reissue all 200? That number *is* the crypto-agility answer.
-3. Which of these would you grade C4, and what evidence would you need to see?
-
----
-
-## 4. Network-layer discovery
-
-**Where:** lab host.
-
-```bash
 ./scans/run-scans.sh
-ls scans/out/
+
+# CBOM (after installing the plugin and activating the rule, see runbook section 5)
+export SONAR_TOKEN=sqp_...  SONAR_PROJECT_KEY=Meridian-BadCrypto-Sample
+./scans/cbom-scan.sh 2>&1 | grep -v 'constructor definition'
 ```
 
-Outputs go to `scans/out/` — handshake transcripts, nmap cipher enumeration, and
-full testssl.sh runs on both endpoints.
+Behind Zscaler or a similar proxy, read runbook section 1c before `docker compose build`.
 
-Check whether your testssl build reports ML-KEM groups. testssl 3.2.4 (the current
-`drwetter/testssl.sh` image) does: look for the `KEMs offered` line and the browser
-simulation table, which shows Chrome, Firefox, Edge and Android negotiating
-X25519MLKEM768. If your build does not, say so out loud during the session and
-fall back to `s_client`. Letting the team claim a tool
-sees something it does not is the exact habit you are running this workshop to prevent.
+## Ports on the host
 
----
-
-## 5. Source-code CBOM
-
-The CBOMkit toolset has moved between the IBM, PQCA and cbomkit GitHub
-organisations. **Check the current canonical repo before you download anything** —
-do not paste a URL from an old deck into a customer-facing artefact.
-
-As of September 2026 the canonical repo is `github.com/cbomkit/sonar-cryptography`
-(the IBM and PQCA URLs redirect there). Release 1.7.0 was tagged without a jar;
-the newest release that ships one is 1.6.1. The compatibility table lists
-SonarQube 9.9 LTS and up; if the plugin refuses to load on the current
-`sonarqube:community` image, pin the compose service to `sonarqube:10.7-community`.
-
-The detection engine is `sonar-cryptography`, a SonarQube plugin. It covers Java
-(JCA, BouncyCastle), Python (pyca/cryptography) and Go, needs SonarQube 9.9 LTS or
-newer, and only the "Cryptographic Inventory (CBOM)" rule writes a `cbom.json`.
-
-**Where:** lab host.
-
-```bash
-# once: install the plugin
-curl -L -O https://github.com/cbomkit/sonar-cryptography/releases/download/1.6.1/sonar-cryptography-plugin-1.6.1.jar
-docker cp sonar-cryptography-plugin-1.6.1.jar sonarqube:/opt/sonarqube/extensions/plugins/
-docker compose restart sonarqube
-
-# If port 9000 is already taken on the host (MinIO uses it), pick another before
-# starting:  export SONAR_PORT=9900 && docker compose up -d sonarqube
-# log in at http://<host>:9000  (admin / admin), change the password,
-# create project "meridian-badcrypto" (local project, key must match
-# badcrypto/sonar-project.properties), generate a project token.
-# Then Quality Profiles -> Java -> copy "Sonar way", activate the rule
-# "Cryptographic Inventory (CBOM)" (repository sonar-java-crypto), set the
-# copy as default. Repeat for Python (sonar-python-crypto). Without this
-# rule active no cbom.json is written.
-export SONAR_TOKEN=sqp_xxxxxxxx
-# The UI derives the key from the name ("Meridian-BadCrypto-Sample"), which does
-# not match the properties file. Pass the key SonarQube actually shows:
-export SONAR_PROJECT_KEY=Meridian-BadCrypto-Sample
-
-./scans/cbom-scan.sh 2>&1 | grep -v 'constructor definition'   # hides plugin noise
-jq '.components[] | {name, type, cryptoProperties}' badcrypto/cbom.json | head -60
-```
-
-`badcrypto/` is a deliberately messy sample: MD5, SHA-1, DES/ECB, 3DES, a hardcoded
-key and static IV, RSA-1024, RSA-2048, ECDSA P-256 — plus one correct AES-256-GCM
-path so there is something to contrast against.
-
-**Deployment artefacts, not just source.** `cbomkit-theia` is the complementary tool:
-it finds certificates, keys, secrets and config inside container images rather than
-API calls in code. Run it against one of your own images so the team sees the gap
-between the two scans. Source scanning alone will miss most of a bank's estate.
-
-**The real exercise:** have someone reconcile ten `cbom.json` entries by hand against
-the workbook register. Every mapping gap you find here is one you will not discover
-in front of the customer.
-
----
-
-## 6. Thales stack
-
-**Where:** separate VM plus DPoD tenant. Keep this last on the agenda and keep it short —
-Phase 1 is an assessment, and credibility comes from not selling during it.
-
-1. Deploy the CTM 2.21 OVA, run first-boot config, apply the licence.
-2. Enable the PQC features and generate an ML-KEM key through both GUI and CLI.
-3. For the HSM, use a DPoD Cloud HSM trial if no hardware is free.
-4. **Verify the firmware and client versions currently required for PQC against the
-   live Thales release notes**, not against notes from an earlier engagement.
-
----
-
-## 7. Teardown and reset
-
-```bash
-docker compose down -v          # drops SonarQube data too
-rm -rf certs/estate scans/out badcrypto/cbom.json
-```
-
-Snapshot the host after step 5 succeeds. If a workshop attendee breaks something on
-day 1, you want a ten-minute restore, not a rebuild.
-
----
-
-## Build schedule
-
-| When | What | Effort |
-|------|------|--------|
-| Day 1 | Host prep, `docker compose up`, section 2 checks pass | 3 hours |
-| Day 1 | Certificate estate + inventory exercise dry run | 2 hours |
-| Day 2 | Network scans, review the output yourself first | 2 hours |
-| Day 2 | SonarQube plugin, CBOM scan, manual reconciliation | 4 hours |
-| Day 3 | CTM and HSM, snapshot the host | 3 hours |
-
-Start the mock-customer pack in parallel on day 1. It takes longer to write than the
-lab takes to build, and it matters more.
+| Port | Service |
+|---|---|
+| 8443 | pqc-web (modern, TLS 1.3 + ML-KEM) |
+| 9443 | legacy-web (TLS 1.0–1.2, SHA-1) |
+| 9000 or `SONAR_PORT` | SonarQube |
